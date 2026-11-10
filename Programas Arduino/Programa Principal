@@ -1,0 +1,248 @@
+#include <AccelStepper.h>
+#include <TouchScreen.h>
+#include <math.h>
+#include <Wire.h>
+#include <AS5600.h>
+
+// ================== AS5600 ==================
+AS5600 stpA, stpB, stpC;
+int I2CA=7, I2CB=4, I2CC=2;      
+float initA, initB, initC;
+float X=0, Y=0, Z=0;
+
+// ================== AJUSTES ==================
+#define Z_MIN      5        
+#define Z_MAX      1000
+#define LOST_LIMIT 5   
+
+const double HZ        = 3.6;
+const double angOrig   = 206.662752199;
+const double angToStep = 400.0 / 360.0;  
+const unsigned long TS_MS = 20;           // periodo del ciclo
+
+// velocidad proporcional
+const double ks         = 20;     // pasos/s por cada paso de error
+const double MIN_SPEED  = 0;
+const double MAX_SPEED  = 600;
+const double HOME_SPEED = 300;    
+const double SLEW       = 100;    
+const double ACC_K   = 10;        
+const double ACC_MIN = 250;
+
+// PID
+double kp = 2.1E-4, ki = 2.5E-6, kd = 3.3E-3;
+const double OUT_MAX = 0.25;
+double Xoffset = 500, Yoffset = 500;
+
+// ================== TRAYECTORIA ==================
+// Se cambia en caliente por Serial: '0' centro, '1' circulo, '2' cuadrado, '3' triangulo
+int    mode   = 1;
+const double R      = 100;  
+const double PERIOD = 10.0;   // segundos por vuelta 
+const double RAMP_T = 5.0;    // segundos de entrada desde el centro
+unsigned long tTraj = 0;
+double sx = 0, sy = 0;   
+
+// ================== HARDWARE ==================
+TouchScreen ts = TouchScreen(A1, A0, A3, A2, 620);
+AccelStepper stepperA(1, 6, 7);
+AccelStepper stepperB(1, 4, 5);
+AccelStepper stepperC(1, 2, 3);
+AccelStepper* st[3] = { &stepperA, &stepperB, &stepperC };
+const int ENA = 8;
+
+// ================== VARIABLES ==================
+double error[2] = {0,0}, errorPrev[2] = {0,0}, integr[2] = {0,0}, deriv[2] = {0,0}, out[2] = {0,0};
+double speedPrev[3] = {0,0,0};
+bool detected = false, ikOk = true;
+uint8_t lostCount = LOST_LIMIT;
+unsigned long tPrint = 0;
+
+// ================== TRAYECTORIA: setpoint en funcion del tiempo ==================
+void trajectory(double t, double &x, double &y) {
+  double u = fmod(t / PERIOD, 1.0);                
+  if (mode == 1) { x = R * cos(2*PI*u); y = R * sin(2*PI*u); return; }
+  int n = (mode == 2) ? 4 : 3;
+  double a0 = (mode == 2) ? PI/4 : PI/2;
+  double s = u * n; int k = (int)s; double f = s - k;
+  double a1 = a0 + 2*PI*k/n, a2 = a0 + 2*PI*(k+1)/n;
+  x = R * ((1-f)*cos(a1) + f*cos(a2));
+  y = R * ((1-f)*sin(a1) + f*sin(a2));
+}
+
+// ================== CINEMATICA INVERSA ==================
+double acosChk(double v) {
+  if (v > 1.0 || v < -1.0 || isnan(v)) { ikOk = false; return 0; }
+  return acos(v);
+}
+
+bool CIall(double hz, double Norx, double Nory, double Ang[3]) {
+  const double e = 3.125, d = 2, g = 3.6692, f = 1.75, S3 = 1.7320508;
+  ikOk = true;
+  double nmag = sqrt(sq(Norx) + sq(Nory) + 1);
+  double nx = Norx / nmag, ny = Nory / nmag, nz = 1 / nmag;
+  double x, y, z, mag;
+
+  y = d + (e / 2) * (1 - (sq(nx) + 3 * sq(nz) + 3 * nz) /
+      (nz + 1 - sq(nx) + (sq(sq(nx)) - 3 * sq(nx) * sq(ny)) / ((nz + 1) * (nz + 1 - sq(nx)))));
+  z = hz + e * ny;
+  mag = sqrt(sq(y) + sq(z));
+  Ang[0] = (acosChk(y / mag) + acosChk((sq(mag) + sq(f) - sq(g)) / (2 * mag * f))) * 180.0 / PI;
+
+  x = (S3 / 2) * (e * (1 - (sq(nx) + S3 * nx * ny) / (nz + 1)) - d);
+  y = x / S3;
+  z = hz - (e / 2) * (S3 * nx + ny);
+  mag = sqrt(sq(x) + sq(y) + sq(z));
+  Ang[1] = (acosChk((S3 * x + y) / (-2 * mag)) + acosChk((sq(mag) + sq(f) - sq(g)) / (2 * mag * f))) * 180.0 / PI;
+
+  x = (S3 / 2) * (d - e * (1 - (sq(nx) - S3 * nx * ny) / (nz + 1)));
+  y = -x / S3;
+  z = hz + (e / 2) * (S3 * nx - ny);
+  mag = sqrt(sq(x) + sq(y) + sq(z));
+  Ang[2] = (acosChk((S3 * x - y) / (2 * mag)) + acosChk((sq(mag) + sq(f) - sq(g)) / (2 * mag * f))) * 180.0 / PI;
+
+  return ikOk;
+}
+
+// ================== SETUP ==================
+void setup() {
+  Serial.begin(115200);
+  Wire.begin();
+  Wire.setClock(400000);
+    TCA9548(I2CA);
+    stpA.begin(12);
+    stpA.setDirection(AS5600_CLOCK_WISE);
+    delay(20);
+    TCA9548(I2CB);
+    stpB.begin(11);
+    stpB.setDirection(AS5600_CLOCK_WISE);
+    delay(20);
+    TCA9548(I2CC);
+    stpC.begin(10);
+    stpC.setDirection(AS5600_CLOCK_WISE);
+    delay(20);
+  pinMode(ENA, OUTPUT);
+  digitalWrite(ENA, HIGH);         
+  for (int i = 0; i < 3; i++) {
+    st[i]->setMinPulseWidth(3);
+    st[i]->setMaxSpeed(HOME_SPEED);
+    st[i]->setAcceleration(HOME_SPEED * 15);
+  }
+  stepperC.setPinsInverted(true, false, false);
+  delay(1000);                      
+  digitalWrite(ENA, LOW);         
+  delay(500);
+    TCA9548(I2CA);
+    initA=stpA.rawAngle()*AS5600_RAW_TO_DEGREES;
+    TCA9548(I2CB);
+    initB=stpB.rawAngle()*AS5600_RAW_TO_DEGREES;
+    TCA9548(I2CC);
+    initC=stpC.rawAngle()*AS5600_RAW_TO_DEGREES;
+}
+
+// ================== LOOP ==================
+void loop() {
+  unsigned long t0 = millis();
+
+  // ---- 0. selector de trayectoria por Serial ----
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c >= '0' && c <= '3') {
+      mode = c - '0';
+      tTraj = millis();
+      for (int i = 0; i < 2; i++) integr[i] = 0;  
+    }
+  }
+
+  // ---- 1. lectura y deteccion ----
+  TSPoint p = ts.getPoint();
+  bool valid = (p.z > Z_MIN && p.z < Z_MAX);
+
+  if (valid) {
+    bool justDetected = !detected;
+    detected = true;
+    lostCount = 0;
+    if (justDetected) tTraj = millis();            // reinicia la trayectoria al detectar la pelota
+
+    // ---- 2. setpoint de la trayectoria ----
+    sx = 0; sy = 0;
+    if (mode != 0) {
+      double t = (millis() - tTraj) / 1000.0;
+      trajectory(t, sx, sy);
+      double k = constrain(t / RAMP_T, 0, 1);
+      sx *= k; sy *= k;
+    }
+    double e[2] = { Xoffset + sx - p.x, Yoffset + sy - p.y };
+
+    // ---- 3. PID ----
+    for (int i = 0; i < 2; i++) {
+      errorPrev[i] = justDetected ? e[i] : error[i]; 
+      error[i] = e[i];
+      integr[i] += error[i] + errorPrev[i];
+      integr[i] = constrain(integr[i], -50000, 50000);
+      deriv[i] = error[i] - errorPrev[i];
+      out[i] = kp * error[i] + ki * integr[i] + kd * deriv[i];
+      out[i] = constrain(out[i], -OUT_MAX, OUT_MAX);
+    }
+  } else {
+    if (lostCount < 255) lostCount++;
+    if (detected && lostCount >= LOST_LIMIT) {
+      detected = false;
+      sx = sy = 0;
+      for (int i = 0; i < 2; i++) integr[i] = out[i] = 0;
+    }
+    // En fallos cortos: se mantiene la ultima salida
+  }
+
+  // ---- 4. cinematica inversa y objetivos ----
+  double ang[3];
+  if (CIall(HZ, -out[0], -out[1], ang)) {
+    for (int i = 0; i < 3; i++) {
+      st[i]->moveTo(lround((angOrig - ang[i]) * angToStep));
+      double v = detected ? abs(st[i]->distanceToGo()) * ks : HOME_SPEED;
+      v = constrain(v, speedPrev[i] - SLEW, speedPrev[i] + SLEW);
+      v = constrain(v, MIN_SPEED, MAX_SPEED);
+      speedPrev[i] = v;
+      st[i]->setMaxSpeed(v);
+      st[i]->setAcceleration(max(v * ACC_K, ACC_MIN));
+    }
+  } else {
+    Serial.println("CI fuera de rango");
+  }
+  
+  // ---- 5. registro de datos ----  
+  if (millis() - tPrint > 200) {
+    tPrint = millis();
+    X = ReadEnc(stpA, I2CA, initA);
+    Y = ReadEnc(stpB, I2CB, initB);
+    Z = ReadEnc(stpC, I2CC, initC);
+    Serial.print(p.x); Serial.print(", "); Serial.print(p.y); Serial.print(",");
+    Serial.print(Xoffset + sx, 2); Serial.print(","); Serial.print(Yoffset + sy, 2); Serial.print(",");
+    Serial.print(error[0], 2); Serial.print(","); Serial.print(error[1], 2); Serial.print(",");
+    Serial.print(X, 2); Serial.print(","); Serial.print(Y, 2); Serial.print(","); Serial.print(Z, 2); Serial.println(",");
+  }
+
+  // ---- 6. mover motores hasta completar los 20 ms ----
+  while (millis() - t0 < TS_MS) {
+    stepperA.run();
+    stepperB.run();
+    stepperC.run();
+  }
+}
+
+// ================== FUNCIONES I2C ==================
+void TCA9548(int bus)
+{
+  Wire.beginTransmission(0x70);
+  Wire.write(1 << bus);
+  Wire.endTransmission();
+}
+
+float ReadEnc(AS5600 &enc, int bus, float init)
+{
+  TCA9548(bus);
+  float d = enc.rawAngle() * AS5600_RAW_TO_DEGREES - init;
+  if (d > 180) d -= 360;     
+  if (d < -180) d += 360;
+  return d;
+}
