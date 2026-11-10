@@ -1,0 +1,214 @@
+//libraries
+#include <AccelStepper.h>
+#include <MultiStepper.h>
+#include <stdint.h>
+#include "TouchScreen.h"
+
+// These are the pins for the shield!
+#define YP A1  // must be an analog pin, use "An" notation!
+#define XM A2  // must be an analog pin, use "An" notation!
+#define YM 4   // can be a digital pin
+#define XP 3   // can be a digital pin
+#define MINPRESSURE 0
+#define MAXPRESSURE 1000
+TouchScreen ts = TouchScreen(XP, YP, XM, YM, 790);
+double Xoffset = 49;  //X offset for the center position of the touchpad
+double Yoffset = 260;  //Y offset for the center position of the touchpad
+
+//stepper motors
+AccelStepper stepperA(1, 5, 6);  //(driver type, STEP, DIR) Driver A
+AccelStepper stepperB(1, 8, 9);  //(driver type, STEP, DIR) Driver B
+AccelStepper stepperC(1, 10, 11);  //(driver type, STEP, DIR) Driver C
+MultiStepper steppers;           // Create instance of MultiStepper
+
+//stepper motor variables
+int pos[3];                            // An array to store the target positions for each stepper motor
+int ENA = 7;                           //enable pin for the drivers
+
+//PID variable
+double kp = 4E-4, ki = 2E-6, kd = 7E-3;   
+double error[2] = {0,0}, errorPrev[2], integr[2] = {0,0}, deriv[2] = {0,0}, out[2];  //PID terms for X and Y directions
+long timeI;
+
+void setup() {
+  Serial.begin(9600);  
+  //Set iniial maximum speed value for the steppers (steps/sec)
+  stepperA.setMaxSpeed(250);
+  stepperB.setMaxSpeed(250);
+  stepperC.setMaxSpeed(250);
+
+  // Adding the steppers to the steppersControl instance for multi stepper control
+  steppers.addStepper(stepperA);
+  steppers.addStepper(stepperB);
+  steppers.addStepper(stepperC);
+  //Enable pin
+  pinMode(ENA, OUTPUT);    //define enable pin as output
+  digitalWrite(ENA, LOW);  //sets the drivers on initially
+  delay(1000);             //small delay to allow the user to reset the platform
+  //Movemement
+  stepperA.moveTo(0.2);
+  stepperB.moveTo(0.2);
+  stepperC.moveTo(0.2);
+  //runs stepper to target position (increments at most 1 step per call)
+
+}
+void loop(){
+PID(0,0);
+TSPoint p = ts.getPoint();
+    //Serial.print("X = ");
+    //Serial.println(p.x);
+    //Serial.print("Y = ");
+    //Serial.println(p.y);
+    Serial.println(out[0]);
+    Serial.println(out[1]);
+}
+
+void PID(double setpointX, double setpointY){
+  TSPoint p = ts.getPoint();
+  for(int i=0; i<2; i++){
+    errorPrev[i] = error[i];
+    error[i] = (i==0)*(Xoffset - p.x - setpointX) + (i==1)*(Yoffset - p.y - setpointY);
+    integr[i] += error[i] + errorPrev[i];
+    deriv[i] = error[i] - errorPrev[i];
+    deriv[i] =  isnan(deriv[i]) || isinf(deriv[i]) ? 0: deriv[i];
+    out[i] = kp*error[i]+ki*integr[i]+kd*deriv[i];
+    out[i] = constrain(out[i], -0.25, 0.25);
+  }
+
+//cinematica inversa
+//long targetX=out[0]*1.5;
+//long targetY=out[1]*1.5;
+stepperA.moveTo(0.1+out[0]);
+stepperB.moveTo(0.1+out[1]);
+stepperC.moveTo(0);
+steppers.run();
+}
+
+
+void KI(float Posx,float Posy,float Posz){
+//falta cambiar valores a los del modelo real
+float p  = 50.0;
+float b  = 40.0;
+float l1 = 80.0;
+float l2 = 120.0;
+float z0 = 2.0;
+//falta convertir posicion en orientacion
+float x=Posx/2;
+float y=Posy/2;
+float z=Posz/2;
+float Ax = radians(x);
+float Ay = radians(y);
+float f1 = (-sin(Ax)*sin(Ay))/(cos(Ax)+cos(Ay));
+float Az = atan(f1);
+float alfa1 = 0.0;
+float alfa2 = radians(120.0);
+float alfa3 = radians(240.0);
+//
+float R[3][3];
+R[0][0] = cos(Ay)*cos(Az);
+R[0][1] = -cos(Ay)*sin(Az);
+R[0][2] = sin(Ay);
+R[1][0] = cos(Ax)*sin(Az) + cos(Az)*sin(Ax)*sin(Ay);
+R[1][1] = cos(Ax)*cos(Az)- sin(Ax)*sin(Ay)*sin(Az);
+R[1][2] = -cos(Ay)*sin(Ax);
+R[2][0] = sin(Ax)*sin(Az)- cos(Ax)*cos(Az)*sin(Ay);
+R[2][1] = cos(Az)*sin(Ax)+ cos(Ax)*sin(Ay)*sin(Az);
+R[2][2] = cos(Ax)*cos(Ay);
+float Rz1[3][3] = {
+  { cos(alfa1), -sin(alfa1), 0.0 },
+  { sin(alfa1),  cos(alfa1), 0.0 },
+  { 0.0,         0.0,        1.0 }
+};
+float Rz2[3][3] = {
+  { cos(alfa2), -sin(alfa2), 0.0 },
+  { sin(alfa2),  cos(alfa2), 0.0 },
+  { 0.0,         0.0,        1.0 }
+};
+float Rz3[3][3] = {
+  { cos(alfa3), -sin(alfa3), 0.0 },
+  { sin(alfa3),  cos(alfa3), 0.0 },
+  { 0.0,         0.0,        1.0 }
+};
+float B[3]={
+  b,
+  0,
+  z0
+};
+float ux=R[1][1];
+float uy=R[1][2];
+float vy=R[2][2];
+float Ox = (p * (ux - vy)) / 2.0;
+float Oy = -uy * p;
+float Oz = Posz;
+float P0[3] = {
+  p*cos(alfa1),
+  p*sin(alfa1),
+  0.0
+};
+float P1[3] = {
+  p*cos(alfa2),
+  p*sin(alfa2),
+  0.0
+};
+float P2[3] = {
+  p*cos(alfa3),
+  p*sin(alfa3),
+  0.0
+};
+float O0[3] ={
+  Ox+(R[0][0]*P0[0])+(R[0][1]*P0[1])+(R[0][2]*P0[2]),
+  Oy+(R[1][0]*P0[0])+(R[1][1]*P0[1])+(R[1][2]*P0[2]),
+  Oz+(R[2][0]*P0[0])+(R[2][1]*P0[1])+(R[2][2]*P0[2])
+};
+float O1[3] ={
+  Ox+(R[0][0]*P1[0])+(R[0][1]*P1[1])+(R[0][2]*P1[2]),
+  Oy+(R[1][0]*P1[0])+(R[1][1]*P1[1])+(R[1][2]*P1[2]),
+  Oz+(R[2][0]*P1[0])+(R[2][1]*P1[1])+(R[2][2]*P1[2])
+};
+float O2[3] ={
+  Ox+(R[0][0]*P2[0])+(R[0][1]*P2[1])+(R[0][2]*P2[2]),
+  Oy+(R[1][0]*P2[0])+(R[1][1]*P2[1])+(R[1][2]*P2[2]),
+  Oz+(R[2][0]*P2[0])+(R[2][1]*P2[1])+(R[2][2]*P2[2])
+};
+
+//TH1
+float A_1 = 2*l1*cos(alfa1) * (b * cos(alfa1) - O0[0]);
+float B_1 = 2*l1*O0[3] * sqrt(cos(alfa1));
+float C_1 = sqrt(O0[0]) - 2 * b * O0[0] * cos(alfa1) + sqrt(cos(alfa1))* (sqrt(b) + sqrt(l1) - sqrt(l2) + sqrt(O0[3]));
+float D_1 = sqrt(A_1) + sqrt(B_1) - sqrt(C_1);
+if (D_1 < 0)
+{
+    Serial.println("Error en pierna 1");
+    D_1 = 0;
+}
+float raiz1 = sqrt(D_1);
+float f12 = (-B_1 + raiz1)/(C_1 - A_1);
+float Ang11 = 2 * atan(f12);
+float th1 = Ang11;
+// TH2
+float A_2 = 2 * l1 * cos(alfa2) * (b * cos(alfa2) - O1[0]);
+float B_2 = 2 * l1 * O1[2] * sqrt(cos(alfa2));
+float C_2 = sqrt(O1[0]) - 2.0 * b * O1[0] * cos(alfa2) + sqrt(cos(alfa2)) * (sqrt(b) + sqrt(l1) - sqrt(l2) + sqrt(O1[2]));
+float D_2 = sqrt(A_2) + sqrt(B_2) - sqrt(C_2);
+if (D_2 < 0)
+{
+    Serial.println("Error en pierna 2");
+    D_2 = 0;
+}
+float f22 = (-B_2 + sqrt(D_2)) /  (C_2 - A_2);
+float Ang21 = 2 * atan(f22);
+float th2 = Ang21;
+// TH3
+float A_3 = 2 * l1 * cos(alfa3) * (b * cos(alfa3) - O2[0]);
+float B_3 = 2 * l1 * O2[2] * sqrt(cos(alfa3));
+float C_3 = sqrt(O2[0]) - 2 * b * O2[0] * cos(alfa3) + sqrt(cos(alfa3)) * (sqrt(b) + sqrt(l1) - sqrt(l2) + sqrt(O2[2]));
+float D_3 = sqrt(A_3) + sqrt(B_3) - sqrt(C_3);
+if (D_3 < 0)
+{
+    Serial.println("Error en pierna 3");
+    D_3 = 0;
+}
+float f32 = (-B_3 + sqrt(D_3)) /  (C_3 - A_3);
+float Ang31 = 2.0 * atan(f32);
+float th3 = Ang31;
+};
