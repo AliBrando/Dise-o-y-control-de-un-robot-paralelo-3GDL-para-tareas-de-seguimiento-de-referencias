@@ -1,0 +1,144 @@
+clear; clc; close all;
+%% ==========================================================
+%  PARAMETROS GEOMETRICOS DEL ROBOT
+p  = 55;   
+b  = 50;    
+l1 = 45;   
+l2 = 75;    
+z0 = 0;        
+Zin_nominal = 90;  
+%% ==========================================================
+%  LIMITES FISICOS REALES DE TUS SERVOMOTORES
+theta_min_deg = -120;   
+theta_max_deg =  240;   
+%% ==========================================================
+%  MALLA DE BUSQUEDA: (roll, pitch, Z)
+roll_range  = -60:1:60;                   
+pitch_range = -60:1:60;                    
+z_range     = (Zin_nominal-25):1:(Zin_nominal+45);  
+
+[RX, PY, ZZ] = ndgrid(roll_range, pitch_range, z_range);
+poses = [RX(:), PY(:), ZZ(:)];
+N = size(poses,1);
+
+validos = false(N,1);
+thetas_all = nan(N,3);
+%% ==========================================================
+%  EVALUAR CI EN CADA POSE
+fprintf('Evaluando %d poses candidatas...\n', N);
+h = waitbar(0,'Calculando espacio de trabajo...');
+
+for i = 1:N
+    x_deg  = poses(i,1); 
+    y_deg  = poses(i,2);   
+    Zin_i  = poses(i,3);   
+    try
+        theta = IK_3RRS(x_deg, y_deg, Zin_i, p, b, l1, l2, z0);
+        % Descartar soluciones complejas
+        if any(~isreal(theta)) || any(isnan(theta))
+            continue;
+        end
+        theta_deg = rad2deg(theta);
+        if all(theta_deg >= theta_min_deg & theta_deg <= theta_max_deg)
+            validos(i) = true;
+            thetas_all(i,:) = theta_deg;
+        end
+
+    catch
+        % Pose invalida (division por cero, sqrt de negativo real puro, etc.)
+        continue;
+    end
+
+    if mod(i,2000)==0
+        waitbar(i/N, h);
+    end
+end
+close(h);
+
+poses_validas = poses(validos,:);
+fprintf('Poses alcanzables encontradas: %d de %d (%.1f%%)\n', ...
+    size(poses_validas,1), N, 100*size(poses_validas,1)/N);
+%% ==========================================================
+%  PLOTEO 3D EN EL ESPACIO (roll, pitch, Z)
+figure('Color','w');
+scatter3(poses_validas(:,1), poses_validas(:,2), poses_validas(:,3), ...
+    8, poses_validas(:,3), 'filled');
+colormap(jet);
+cb = colorbar; cb.Label.String = 'Altura Z (mm)';
+xlabel('Roll (grados)'); ylabel('Pitch (grados)'); zlabel('Z (mm)');
+title('Espacio de trabajo alcanzable - Robot 3-RRS (tip-tilt-Z)');
+grid on; view(45,25);
+%% ==========================================================
+%  VOLUMEN DEL ESPACIO DE TRABAJO
+if size(poses_validas,1) > 10
+    figure('Color','w');
+    shp = alphaShape(poses_validas(:,1), poses_validas(:,2), poses_validas(:,3));
+    shp.Alpha = shp.Alpha * 1.5;
+    plot(shp, 'FaceColor', [0.2 0.6 0.9], 'FaceAlpha', 0.45, 'EdgeColor', 'none');
+    xlabel('Roll (grados)'); ylabel('Pitch (grados)'); zlabel('Z (mm)');
+    title('Frontera del espacio de trabajo (alphaShape)');
+    grid on; camlight; lighting gouraud;
+end
+%% ==========================================================
+%  VISUALIZACION EN CARTESIANO REAL DEL CENTRO DE PLATAFORMA
+Oxyz = nan(size(poses_validas,1),3);
+for k = 1:size(poses_validas,1)
+    [~, Oc] = IK_3RRS(poses_validas(k,1), poses_validas(k,2), poses_validas(k,3), ...
+                        p, b, l1, l2, z0);
+    Oxyz(k,:) = Oc;
+end
+
+figure('Color','w');
+scatter3(Oxyz(:,1), Oxyz(:,2), Oxyz(:,3), 8, Oxyz(:,3), 'filled');
+colormap(jet); colorbar;
+xlabel('X (mm)'); ylabel('Y (mm)'); zlabel('Z (mm)');
+title('Espacio de trabajo - posicion cartesiana real del centro de plataforma');
+axis equal; grid on; view(45,25);
+%% ==========================================================
+%  CINEMATICA INVERSA 
+%% ==========================================================
+function [theta, T] = IK_3RRS(x_deg, y_deg, Zin, p, b, l1, l2, z0)
+    Ax = deg2rad(x_deg);
+    Ay = deg2rad(y_deg);
+    f1 = (-sin(Ax)*sin(Ay)) / (cos(Ax) + cos(Ay));
+    Az = atan(f1);
+    alfa1 = deg2rad(0);
+    alfa2 = deg2rad(120);
+    alfa3 = deg2rad(240);
+    Oz = Zin;
+
+    R = [ cos(Ay)*cos(Az)                          -cos(Ay)*sin(Az)                          sin(Ay)
+          cos(Ax)*sin(Az)+cos(Az)*sin(Ax)*sin(Ay)    cos(Ax)*cos(Az)-sin(Ax)*sin(Ay)*sin(Az)  -cos(Ay)*sin(Ax)
+          sin(Ax)*sin(Az)-cos(Ax)*cos(Az)*sin(Ay)    cos(Az)*sin(Ax)+cos(Ax)*sin(Ay)*sin(Az)   cos(Ax)*cos(Ay)];
+    Rz1 = [cos(alfa1) -sin(alfa1) 0; sin(alfa1) cos(alfa1) 0; 0 0 1];
+    Rz2 = [cos(alfa2) -sin(alfa2) 0; sin(alfa2) cos(alfa2) 0; 0 0 1];
+    Rz3 = [cos(alfa3) -sin(alfa3) 0; sin(alfa3) cos(alfa3) 0; 0 0 1];
+    P = [p; 0; 0];
+    ux = R(1,1); uy = R(1,2); vy = R(2,2);
+    Ox = (p*(ux-vy))/2;
+    Oy = -uy*p;
+    T  = [Ox, Oy, Oz];
+    O1 = T' + (R*Rz1*P);
+    O2 = T' + (R*Rz2*P);
+    O3 = T' + (R*Rz3*P);
+
+    th1 = solveLeg(O1, alfa1, b, l1, l2);
+    th2 = solveLeg(O2, alfa2, b, l1, l2);
+    th3 = solveLeg(O3, alfa3, b, l1, l2);
+
+    theta = [th1, th2, th3];
+end
+
+function th = solveLeg(O, alfa, b, l1, l2)
+    A = 2*l1*cos(alfa)*(b*cos(alfa) - O(1));
+    B = 2*l1*O(3)*cos(alfa)^2;
+    C = O(1)^2 - 2*b*O(1)*cos(alfa) + cos(alfa)^2*(b^2 + l1^2 - l2^2 + O(3)^2);
+
+    disc = A^2 + B^2 - C^2;   % si es negativo -> pose inalcanzable
+
+    f_sol1 = (C - A) / (-B + sqrt(disc));
+    % f_sol2 = (C - A) / (-B - sqrt(disc)); 
+
+    Ang1 = 2*atan(f_sol1);
+    th = -Ang1; %posiciones para espacio de trabajo en la parte superior
+end
