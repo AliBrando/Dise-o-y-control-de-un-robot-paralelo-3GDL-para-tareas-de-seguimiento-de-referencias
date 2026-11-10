@@ -1,0 +1,138 @@
+#include <AccelStepper.h>
+#include <Wire.h>
+#include <AS5600.h>
+
+// Define three as5600 objects as X, Y and Z for further use
+AS5600 stpA, stpB;
+int I2CA=1, I2CB=3;
+float radA=0, radB=0;
+float newradA, newradB;
+float initA, initB;
+float dradA=0,dradB=0,dradC=0;
+float drevA=0,drevB=0,drevC=0;
+float X=0,Y=0,Z=0,t=0;
+
+// Define stepper pins
+#define STEP_PIN1 3      // Step pin 1
+#define DIR_PIN1 2       // Direction pin 1
+#define STEP_PIN2 5      // Step pin 2
+#define DIR_PIN2 4       // Direction pin 2
+
+// Steps per revolution for the motor
+const float stepsPerRevolution = 200;
+// Microstepping multiplier (1, 2, 4, 8, 16, or 32)
+int microstepSetting = 2;
+
+// AccelStepper instance in driver mode
+AccelStepper stepper1(AccelStepper::DRIVER, STEP_PIN1, DIR_PIN1);
+AccelStepper stepper2(AccelStepper::DRIVER, STEP_PIN2, DIR_PIN2);
+
+// Function to calculate steps based on desired rotations
+float convert_rotational_position_to_steps(float rotations) {
+  return rotations * stepsPerRevolution * microstepSetting;
+}
+
+void setup() {
+
+// Start serial communication
+    Serial.print("Programa Iniciado");
+    Serial.begin(115200);
+    while (!Serial)
+    {
+        // wait for serial port to connect. Needed for native USB port only
+    }
+    Wire.begin();
+    // Set up and check if X is connected
+    Serial.println("X Cargado");
+    TCA9548(I2CA);
+    stpA.begin(4);
+    stpA.setDirection(AS5600_CLOCK_WISE);
+    int b = stpA.isConnected();
+    Serial.print("Connect: ");
+    Serial.println(b);
+    Serial.println("X conectado");
+    delay(20);
+
+    Serial.println("Y Cargado");
+    TCA9548(I2CB);
+    stpB.begin(5);
+    stpB.setDirection(AS5600_CLOCK_WISE);
+    int c = stpB.isConnected();
+    Serial.print("Connect: ");
+    Serial.println(c);
+    Serial.println("Y conectado");
+    delay(20);
+
+    Serial.println("Programa listo");
+    // Set the max speed and acceleration
+    float MaxRPM = 60; // Set max speed in rpm (revolutions per minute)
+    float Max_Speed_StepsPerSec = microstepSetting * stepsPerRevolution * MaxRPM / 60; // Specify max speed in steps/sec (converted from RPM)
+    stepper1.setMaxSpeed(Max_Speed_StepsPerSec);
+    stepper2.setMaxSpeed(Max_Speed_StepsPerSec);
+
+    float AccelRPMperSec = 300; // Set acceleration in rpm/sec
+    float Accel_StepsPerSec2 = microstepSetting * stepsPerRevolution * AccelRPMperSec / 60;
+    stepper1.setAcceleration(Accel_StepsPerSec2);
+    stepper2.setAcceleration(Accel_StepsPerSec2);
+
+    // Move to position 0 as the starting point
+    stepper1.setCurrentPosition(0);
+    stepper2.setCurrentPosition(0);
+    
+    TCA9548(I2CA);
+    initA=stpA.rawAngle()*AS5600_RAW_TO_DEGREES;
+    TCA9548(I2CB);
+    initB=stpB.rawAngle()*AS5600_RAW_TO_DEGREES;
+}
+
+void TCA9548(int bus)
+{
+    Wire.beginTransmission(0x70);
+    Wire.write(1 << bus);
+    Wire.endTransmission();
+}
+
+float ReadEnc(AS5600 &enc, int bus, float init)
+{
+  TCA9548(bus);
+  return enc.rawAngle()*AS5600_RAW_TO_DEGREES-init;
+
+}
+
+unsigned long lastPrint=0;
+void loop()
+{
+  move(X,Y,t);
+  t=t+1;
+
+  if(millis()-lastPrint>50)
+  {
+    lastPrint=millis();
+
+    X=ReadEnc(stpA,I2CA,initA);
+    Serial.print("X: ");
+    Serial.println(X);
+
+    Y=ReadEnc(stpB,I2CB,initB);
+    Serial.print("Y: ");
+    Serial.println(Y);
+  }
+}
+
+void move(float x, float y, float t) {
+  //calculates stepper motor positon
+  float rad=t*(PI/180.0);
+  float A=cos(rad);
+  float B=sin(rad);
+  //turn into stepps
+  float posA=(A/(2*PI))*stepsPerRevolution*microstepSetting;
+  float posB=(B/(2*PI))*stepsPerRevolution*microstepSetting;
+  //sets target positions
+  stepper1.moveTo(posA);
+  stepper2.moveTo(posB);
+  //stepper3.moveTo(pos[C]);
+  //runs stepper to target position (increments at most 1 step per call)
+  stepper1.run();
+  stepper2.run();
+  //stepper3.run();
+}
