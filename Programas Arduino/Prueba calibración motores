@@ -1,0 +1,72 @@
+#include <AccelStepper.h>
+#include <MultiStepper.h>
+AccelStepper stepperA(1, 5, 6); //1 driver, 5 pin step amarillo, 6 pin dir verde
+AccelStepper stepperB(1, 8, 9);
+AccelStepper stepperC(1, 10, 11);
+MultiStepper steppers;
+const int ENA = 7;
+
+const float micrstep = 360.0/(200 * 2);  // 2 = microstepping (ajusta según DRV8825)
+
+long DegToStep(float grados) {
+  return (long)(grados * micrstep);
+}
+
+long Home[3] = {0,0,0};  
+
+void setup() {
+  stepperA.setMaxSpeed(200);
+  stepperB.setMaxSpeed(200);
+  stepperC.setMaxSpeed(200);
+
+  stepperA.setAcceleration(100);
+  stepperB.setAcceleration(100);
+  stepperC.setAcceleration(100);
+
+  stepperA.setPinsInverted(true, false, false);
+  stepperB.setPinsInverted(false, false, false);
+  stepperC.setPinsInverted(false, false, false);
+
+  steppers.addStepper(stepperA);
+  steppers.addStepper(stepperB);
+  steppers.addStepper(stepperC);
+
+  pinMode(ENA, OUTPUT);
+  digitalWrite(ENA, LOW);
+  delay(1000);
+
+  moveToSteps(Home);
+  delay(500);
+}
+
+void loop() {
+  moveToAngleFromHome(90);
+  delay(2000);
+  moveToAngleFromHome(-90);
+  delay(2000);
+  moveToSteps(Home);
+  delay(500);
+}
+
+// Mueve a un ángulo relativo respecto a Home (en grados)
+void moveToAngleFromHome(float grados) {
+  long offset = DegToStep(grados);
+  long targets[3] = {
+    Home[0] + offset,
+    Home[1] + offset,
+    Home[2] + offset
+  };
+  moveToSteps(targets);
+}
+
+// Mueve a una posición absoluta en pasos y bloquea hasta llegar
+void moveToSteps(long targets[3]) {
+  steppers.moveTo(targets);
+  while (stepperA.distanceToGo() != 0 ||
+         stepperB.distanceToGo() != 0 ||
+         stepperC.distanceToGo() != 0) {
+    steppers.run();
+  }
+}
+
+
