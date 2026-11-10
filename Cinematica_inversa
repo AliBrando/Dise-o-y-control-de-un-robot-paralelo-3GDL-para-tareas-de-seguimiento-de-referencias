@@ -1,0 +1,114 @@
+clc
+clear all 
+syms dOx dOy dOz dAx dAy dAz
+%% Variables
+
+Zin=75;
+x=5;
+y=5;
+p  = 55;   
+b  = 50;    
+l1 = 45;   
+l2 = 75;     
+z0 = 0;        
+%% KI
+%%constantes
+Ax=deg2rad(x);
+Ay=deg2rad(y);
+f1=(-sin(Ax)*sin(Ay))/(cos(Ax)+cos(Ay));
+Az=atan(f1);
+alfa1=deg2rad(0);
+alfa2=deg2rad(120);
+alfa3=deg2rad(240);
+alfa4=deg2rad(0);
+alfa5=deg2rad(120);
+alfa6=deg2rad(240);
+Oz=Zin;
+%%Ecuaciones generales
+R=[                       cos(Ay)*cos(Az)                        -cos(Ay)*sin(Az)          sin(Ay)
+  cos(Ax)*sin(Az)+cos(Az)*sin(Ax)*sin(Ay) cos(Ax)*cos(Az)-sin(Ax)*sin(Ay)*sin(Az) -cos(Ay)*sin(Ax)
+  sin(Ax)*sin(Az)-cos(Ax)*cos(Az)*sin(Ay) cos(Az)*sin(Ax)+cos(Ax)*sin(Ay)*sin(Az)  cos(Ax)*cos(Ay)];
+Rz1=[cos(alfa1) -sin(alfa1)   0
+    sin(alfa1)  cos(alfa1)   0
+      0        0             1];
+Rz2=[cos(alfa2) -sin(alfa2)   0
+    sin(alfa2)  cos(alfa2)   0
+      0        0             1];
+Rz3=[cos(alfa3) -sin(alfa3)   0
+    sin(alfa3)  cos(alfa3)   0
+      0        0             1];  
+P=[p
+   0
+   0];
+B=[b
+   0
+   z0];
+ux=R(1,1);
+uy=R(1,2);
+vy=R(2,2);
+Ox=(p*(ux-vy))/2;
+Oy=-uy*p;
+T=[Ox
+   Oy
+   Oz];
+O1=T+(R*Rz1*P);
+O2=T+(R*Rz2*P);
+O3=T+(R*Rz3*P);
+%%Th1
+A1=2*l1*cos(alfa1)*(b*cos(alfa1)-O1(1));
+B1=2*l1*O1(3)*cos(alfa1)^2;
+C1=O1(1)^2-2*b*O1(1)*cos(alfa1)+cos(alfa1)^2*(b^2+l1^2-l2^2+O1(3)^2);
+f12=(-B1+sqrt(A1^2+B1^2-C1^2))\(C1-A1);
+f13=(-B1-sqrt(A1^2+B1^2-C1^2))\(C1-A1);
+Ang11=2*atan(f12);
+Ang12=2*atan(f13);
+
+Cphi11=(O1(1)-cos(alfa1)*(b+l1*cos(Ang11+pi)))/(l2*cos(alfa1));
+Sphi11=(-O1(3)+l1*sin(Ang11+pi))/l2;
+Cphi12=(O1(1)-cos(alfa1)*(b+l1*cos(Ang12-pi)))/(l2*cos(alfa1));
+Sphi12=(O1(3)+l1*sin(Ang12-pi))/l2;
+
+th1=-Ang11
+phi1=atan2(Cphi11,Sphi11)+pi/2
+phi12=atan2(Cphi12,Sphi12);
+%%TH2
+A2=2*l1*cos(alfa2)*(b*cos(alfa2)-O2(1));
+B2=2*l1*O2(3)*cos(alfa2)^2;
+C2=O2(1)^2-2*b*O2(1)*cos(alfa2)+cos(alfa2)^2*(b^2+l1^2-l2^2+O2(3)^2);
+f22=(-B2+sqrt(A2^2+B2^2-C2^2))\(C2-A2);
+f23=(-B2-sqrt(A2^2+B2^2-C2^2))\(C2-A2);
+Ang21=2*atan(f22);
+Ang22=2*atan(f23);
+
+Cphi21=(O2(1)-cos(alfa2)*(b+l1*cos(Ang21-pi)))/(l2*cos(alfa2));
+Sphi21=(-O2(3)+l1*sin(Ang21-pi))/l2;
+Cphi22=(O2(1)-cos(alfa2)*(b+l1*cos(Ang22)))/(l2*cos(alfa2));
+Sphi22=(O2(3)+l1*sin(Ang22))/l2;
+
+th2=-Ang21
+phi2=atan2(Cphi21,Sphi21)+pi/2
+phi22=atan2(Cphi22,Sphi22);
+%%TH3
+A3=2*l1*cos(alfa3)*(b*cos(alfa3)-O3(1));
+B3=2*l1*O3(3)*cos(alfa3)^2;
+C3=O3(1)^2-2*b*O3(1)*cos(alfa3)+cos(alfa3)^2*(b^2+l1^2-l2^2+O3(3)^2);
+f32=(-B3+sqrt(A3^2+B3^2-C3^2))\(C3-A3);
+f33=(-B3-sqrt(A3^2+B3^2-C3^2))\(C3-A3);
+Ang31=2*atan(f32);
+Ang32=2*atan(f33);
+
+Cphi31=(O3(1)-cos(alfa3)*(b+l1*cos(Ang31-pi)))/(l2*cos(alfa3));
+Sphi31=(-O3(3)+l1*sin(Ang31-pi))/l2;
+Cphi32=(O3(1)-cos(alfa3)*(b+l1*cos(Ang32)))/(l2*cos(alfa3));
+Sphi32=(O3(3)+l1*sin(Ang32))/l2;
+
+th3=-Ang31
+phi3=atan2(Cphi31,Sphi31)+pi/2
+phi32=atan2(Cphi32,Sphi32);
+%% comprobacion inclinacion 
+V1=O2-O1;
+V2=O3-O1;
+n=cross(V1,V2);
+unitario = n / norm(n);
+psix=-asin(unitario(2));
+psiy=atan2(unitario(1),unitario(3));
