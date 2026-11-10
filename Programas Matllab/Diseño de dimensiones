@@ -1,0 +1,186 @@
+clear; clc; close all;
+
+%% 1. WORKSPACE DESEADO
+roll_max_deg  = 60;
+pitch_max_deg = 60;
+Z_min = 35;
+Z_max = 150;
+
+theta_min_deg = -60;   % limite real de tus servos
+theta_max_deg =  270;
+
+%% 2. RANGO AMPLIO DE BUSQUEDA (no hace falta afinarlo, el score decide)
+p_lim  = [20  100];    % radio plataforma (mm)
+b_lim  = [20  100];    % radio base (mm)
+l1_lim = [15  70];    % brazo activo (mm)
+l2_lim = [30 140];    % biela (mm)
+z0 = 0;
+
+%% 3. PREFERENCIAS DE PROPORCION (ajustables, son GUIAS no limites duros)
+target_pb   = 0.95;   % relacion tipica plataforma/base (plataforma algo mas chica)
+target_l2l1 = 1.2;    % relacion tipica biela/brazo (biela mas larga = mejor ventaja mecanica)
+
+% Pesos del score (ajusta si quieres priorizar mas/menos cada cosa)
+w_size = 0.10;   % que tanto penaliza el tamano total
+w_prop = 0.08;   % que tanto penaliza desviarse de la proporcion tipica
+w_margen = 0.05; % que tanto premia tener margen mecanico extra (no solo "alcanzable")
+
+%% 4. MUESTREO ALEATORIO DEL ESPACIO DE DISENO
+N_samples = 4000;   % candidatos a evaluar (subelo si tu PC aguanta, ej. 10000)
+rng(1); % reproducibilidad
+
+p_s  = p_lim(1)  + (p_lim(2)-p_lim(1))   * rand(N_samples,1);
+b_s  = b_lim(1)  + (b_lim(2)-b_lim(1))   * rand(N_samples,1);
+l1_s = l1_lim(1) + (l1_lim(2)-l1_lim(1)) * rand(N_samples,1);
+l2_s = l2_lim(1) + (l2_lim(2)-l2_lim(1)) * rand(N_samples,1);
+
+%% 5. POSES DE PRUEBA (corners + interior del workspace deseado)
+rolls  = linspace(-roll_max_deg,  roll_max_deg,  3);
+pitchs = linspace(-pitch_max_deg, pitch_max_deg, 3);
+zs     = linspace(Z_min, Z_max, 3);
+[rr,pp,zz] = ndgrid(rolls, pitchs, zs);
+poses_test = [rr(:), pp(:), zz(:)];   % 27 poses
+Npos = size(poses_test,1);
+
+%% 6. EVALUAR CADA DISENO CANDIDATO
+resultados = nan(N_samples, 8);  % p b l1 l2 reach_frac avg_margen size prop_pen
+fprintf('Evaluando %d disenos candidatos...\n', N_samples);
+h = waitbar(0,'Calculando puntuacion de disenos...');
+
+for i = 1:N_samples
+    p = p_s(i); b = b_s(i); l1 = l1_s(i); l2 = l2_s(i);
+
+    ok_count = 0;
+    margenes_ok = [];
+
+    for k = 1:Npos
+        try
+            [theta, ~, margen] = IK_3RRS_margen(poses_test(k,1), poses_test(k,2), ...
+                                                  poses_test(k,3), p, b, l1, l2, z0);
+            if any(~isreal(theta)) || any(isnan(theta)), continue; end
+            theta_deg = rad2deg(theta);
+            if any(theta_deg < theta_min_deg | theta_deg > theta_max_deg), continue; end
+            if any(margen < 0), continue; end   % debe existir solucion real (no al limite)
+
+            ok_count = ok_count + 1;
+            margenes_ok(end+1) = min(margen); %#ok<AGROW>
+        catch
+            continue;
+        end
+    end
+
+    reach_frac = ok_count / Npos;
+    avg_margen = 0;
+    if ~isempty(margenes_ok)
+        avg_margen = mean(margenes_ok);
+    end
+
+    tamano_total = 2*b + l1 + l2;
+    prop_pen = ((p/b - target_pb)/target_pb)^2 + ((l2/l1 - target_l2l1)/target_l2l1)^2;
+
+    resultados(i,:) = [p, b, l1, l2, reach_frac, avg_margen, tamano_total, prop_pen];
+
+    if mod(i,200)==0, waitbar(i/N_samples,h); end
+end
+close(h);
+
+%% 7. CALCULAR SCORE FINAL Y RANKING
+size_norm = (resultados(:,7) - min(resultados(:,7))) / (max(resultados(:,7)) - min(resultados(:,7)) + eps);
+score = resultados(:,5) + w_margen*resultados(:,6) - w_size*size_norm - w_prop*resultados(:,8);
+
+tabla = array2table([resultados, score], 'VariableNames', ...
+    {'p_mm','b_mm','l1_mm','l2_mm','reach_frac','avg_margen','tamano_total_mm','prop_penalty','score'});
+tabla.workspace_pct = tabla.reach_frac * 100;
+tabla = sortrows(tabla, 'score', 'descend');
+
+fprintf('\n=== TOP 10 DISENOS (mejor balance workspace / tamano / proporcion) ===\n');
+disp(tabla(1:10, {'p_mm','b_mm','l1_mm','l2_mm','workspace_pct','avg_margen','tamano_total_mm','score'}));
+
+%% 8. VISUALIZAR EL WORKSPACE REAL DEL MEJOR DISENO ENCONTRADO
+best = tabla(1,:);
+fprintf('\n>>> Mejor diseno: p=%.1f mm, b=%.1f mm, l1=%.1f mm, l2=%.1f mm\n', ...
+    best.p_mm, best.b_mm, best.l1_mm, best.l2_mm);
+fprintf('    Alcanza %.1f%% del workspace deseado, con margen mecanico promedio %.2f\n', ...
+    best.workspace_pct, best.avg_margen);
+fprintf('    Relacion p/b = %.2f (objetivo %.2f) | Relacion l2/l1 = %.2f (objetivo %.2f)\n', ...
+    best.p_mm/best.b_mm, target_pb, best.l2_mm/best.l1_mm, target_l2l1);
+
+% Barrido fino del mejor diseno para graficar su workspace real
+roll_range  = -roll_max_deg-5 : 1 : roll_max_deg+5;
+pitch_range = -pitch_max_deg-5: 1 : pitch_max_deg+5;
+z_range     = Z_min-10 : 2 : Z_max+10;
+[RX,PY,ZZv] = ndgrid(roll_range, pitch_range, z_range);
+poses_full = [RX(:), PY(:), ZZv(:)];
+Nf = size(poses_full,1);
+valido = false(Nf,1);
+
+for i = 1:Nf
+    try
+        [theta,~,margen] = IK_3RRS_margen(poses_full(i,1), poses_full(i,2), poses_full(i,3), ...
+                                            best.p_mm, best.b_mm, best.l1_mm, best.l2_mm, z0);
+        if any(~isreal(theta)) || any(isnan(theta)), continue; end
+        theta_deg = rad2deg(theta);
+        if any(theta_deg < theta_min_deg | theta_deg > theta_max_deg), continue; end
+        if any(margen < 0), continue; end
+        valido(i) = true;
+    catch
+        continue;
+    end
+end
+
+poses_validas = poses_full(valido,:);
+figure('Color','w');
+scatter3(poses_validas(:,1), poses_validas(:,2), poses_validas(:,3), 6, poses_validas(:,3), 'filled');
+colormap(jet); cb = colorbar; cb.Label.String = 'Z (mm)';
+xlabel('Roll (grados)'); ylabel('Pitch (grados)'); zlabel('Z (mm)');
+title(sprintf('Workspace del mejor diseno: p=%.0f b=%.0f l1=%.0f l2=%.0f mm', ...
+    best.p_mm, best.b_mm, best.l1_mm, best.l2_mm));
+grid on; view(45,25);
+
+% Marcar el workspace deseado como referencia (caja)
+hold on;
+[bx,by,bz] = ndgrid([-roll_max_deg roll_max_deg],[-pitch_max_deg pitch_max_deg],[Z_min Z_max]);
+plot3(bx(:),by(:),bz(:),'ko','MarkerSize',8,'MarkerFaceColor','r');
+legend('Workspace alcanzado','Esquinas del workspace deseado','Location','best');
+
+
+%% ==========================================================
+%  FUNCION DE APOYO (misma que antes)
+%  ==========================================================
+function [theta, T, margen] = IK_3RRS_margen(x_deg, y_deg, Zin, p, b, l1, l2, z0)
+    Ax = deg2rad(x_deg);
+    Ay = deg2rad(y_deg);
+    f1 = (-sin(Ax)*sin(Ay)) / (cos(Ax) + cos(Ay));
+    Az = atan(f1);
+
+    alfa = deg2rad([0, 120, 240]);
+    Oz = Zin;
+
+    R = [ cos(Ay)*cos(Az)                          -cos(Ay)*sin(Az)                          sin(Ay)
+          cos(Ax)*sin(Az)+cos(Az)*sin(Ax)*sin(Ay)    cos(Ax)*cos(Az)-sin(Ax)*sin(Ay)*sin(Az)  -cos(Ay)*sin(Ax)
+          sin(Ax)*sin(Az)-cos(Ax)*cos(Az)*sin(Ay)    cos(Az)*sin(Ax)+cos(Ax)*sin(Ay)*sin(Az)   cos(Ax)*cos(Ay)];
+
+    P = [p; 0; 0];
+    ux = R(1,1); uy = R(1,2); vy = R(2,2);
+    Ox = (p*(ux-vy))/2;
+    Oy = -uy*p;
+    T  = [Ox, Oy, Oz];
+
+    theta = zeros(1,3);
+    margen = zeros(1,3);
+    for i = 1:3
+        Rz = [cos(alfa(i)) -sin(alfa(i)) 0; sin(alfa(i)) cos(alfa(i)) 0; 0 0 1];
+        O  = T' + (R*Rz*P);
+
+        A = 2*l1*cos(alfa(i))*(b*cos(alfa(i)) - O(1));
+        B = 2*l1*O(3)*cos(alfa(i))^2;
+        C = O(1)^2 - 2*b*O(1)*cos(alfa(i)) + cos(alfa(i))^2*(b^2 + l1^2 - l2^2 + O(3)^2);
+
+        disc = A^2 + B^2 - C^2;
+        margen(i) = disc / (A^2 + B^2 + eps);
+
+        f_sol1 = (C - A) / (-B + sqrt(disc));
+        Ang1 = 2*atan(f_sol1);
+        theta(i) = -Ang1;
+    end
+end
