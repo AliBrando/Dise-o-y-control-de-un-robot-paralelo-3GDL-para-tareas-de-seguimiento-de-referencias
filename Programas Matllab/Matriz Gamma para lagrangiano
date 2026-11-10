@@ -1,0 +1,181 @@
+    clc
+clear all 
+syms gama11 gama12 gama13 gama14 gama15 gama16 gama17 gama18 gama19 ...
+     gama21 gama22 gama23 gama24 gama25 gama26 gama27 gama28 gama29 ...
+     gama31 gama32 gama33 gama34 gama35 gama36 gama37 gama38 gama39 ...
+     gama41 gama42 gama43 gama44 gama45 gama46 gama47 gama48 gama49 ...
+     gama51 gama52 gama53 gama54 gama55 gama56 gama57 gama58 gama59 ... 
+     gama71 gama72 gama73 gama74 gama75 gama76 gama77 gama78 gama79 ...
+     gama81 gama82 gama83 gama84 gama85 gama86 gama87 gama88 gama89 ...
+     gama91 gama92 gama93 gama94 gama95 gama96 gama97 gama98 gama99 ...
+     gama101 gama102 gama103 gama104 gama105 gama106 gama107 gama108 gama109 ...
+     gama111 gama112 gama113 gama114 gama115 gama116 gama117 gama118 gama119 ...
+     gama121 gama122 gama123 gama124 gama125 gama126 gama127 gama128 gama129 ...
+     Ax Ay Az Ox Oy Oz p th1 th2 th3 ph1 ph2 ph3 b l1 l2 alfa1 alfa2 alfa3
+psi=[Ax;Ay;Az];
+R = [ cos(Ay)*cos(Az)                          -cos(Ay)*sin(Az)                          sin(Ay)
+    cos(Ax)*sin(Az)+cos(Az)*sin(Ax)*sin(Ay)    cos(Ax)*cos(Az)-sin(Ax)*sin(Ay)*sin(Az)  -cos(Ay)*sin(Ax)
+    sin(Ax)*sin(Az)-cos(Ax)*cos(Az)*sin(Ay)    cos(Az)*sin(Ax)+cos(Ax)*sin(Ay)*sin(Az)   cos(Ax)*cos(Ay)];
+
+O74x=Ox+p*R(1,1);
+O74y=Oy+p*R(1,2);
+O74z=Oz+p*R(1,3);
+O75x=Ox-(p*R(1,1)/2)+(sqrt(3)*p*R(2,1)/2);
+O75y=Oy-(p*R(1,2)/2)+(sqrt(3)*p*R(2,2)/2);
+O75z=Oz-(p*R(1,3)/2)+(sqrt(3)*p*R(2,3)/2);
+O76x=Ox-(p*R(1,1)/2)-(sqrt(3)*p*R(2,1)/2);
+O76y=Oy-(p*R(1,2)/2)-(sqrt(3)*p*R(2,2)/2);
+O76z=Oz-(p*R(1,3)/2)-(sqrt(3)*p*R(2,3)/2);
+%% Fila 7 -> derivada respecto a Ox
+gama71 = diff(O74x, Ox)
+gama72 = diff(O74y, Ox)
+gama73 = diff(O74z, Ox)
+gama74 = diff(O75x, Ox)
+gama75 = diff(O75y, Ox)
+gama76 = diff(O75z, Ox)
+gama77 = diff(O76x, Ox)
+gama78 = diff(O76y, Ox)
+gama79 = diff(O76z, Ox)
+ 
+%% Fila 8 -> derivada respecto a Oy
+gama81 = diff(O74x, Oy)
+gama82 = diff(O74y, Oy)
+gama83 = diff(O74z, Oy)
+gama84 = diff(O75x, Oy)
+gama85 = diff(O75y, Oy)
+gama86 = diff(O75z, Oy)
+gama87 = diff(O76x, Oy)
+gama88 = diff(O76y, Oy)
+gama89 = diff(O76z, Oy)
+ 
+%% Fila 9 -> derivada respecto a Oz
+gama91 = diff(O74x, Oz)
+gama92 = diff(O74y, Oz)
+gama93 = diff(O74z, Oz)
+gama94 = diff(O75x, Oz)
+gama95 = diff(O75y, Oz)
+gama96 = diff(O75z, Oz)
+gama97 = diff(O76x, Oz)
+gama98 = diff(O76y, Oz)
+gama99 = diff(O76z, Oz)
+ 
+%% Fila 10 -> derivada respecto a Ax (psix)
+gama101 = diff(O74x, Ax)
+gama102 = diff(O74y, Ax)
+gama103 = diff(O74z, Ax)
+gama104 = diff(O75x, Ax)
+gama105 = diff(O75y, Ax)
+gama106 = diff(O75z, Ax)
+gama107 = diff(O76x, Ax)
+gama108 = diff(O76y, Ax)
+gama109 = diff(O76z, Ax)
+ 
+%% Fila 11 -> derivada respecto a Ay (psiy)
+gama111 = diff(O74x, Ay)
+gama112 = diff(O74y, Ay)
+gama113 = diff(O74z, Ay)
+gama114 = diff(O75x, Ay)
+gama115 = diff(O75y, Ay)
+gama116 = diff(O75z, Ay)
+gama117 = diff(O76x, Ay)
+gama118 = diff(O76y, Ay)
+gama119 = diff(O76z, Ay)
+ 
+%% Fila 12 -> derivada respecto a Az (psiz)
+gama121 = diff(O74x, Az)
+gama122 = diff(O74y, Az)
+gama123 = diff(O74z, Az)
+gama124 = diff(O75x, Az)
+gama125 = diff(O75y, Az)
+gama126 = diff(O75z, Az)
+gama127 = diff(O76x, Az)
+gama128 = diff(O76y, Az)
+gama129 = diff(O76z, Az)
+%%
+S4x = cos(alfa1)*(b + l1*cos(th1) + l2*cos(ph1));
+S4y = sin(alfa1)*(b + l1*cos(th1) + l2*cos(ph1));
+S4z = l1*sin(th1) + l2*sin(ph1);
+S5x = cos(alfa2)*(b + l1*cos(th2) + l2*cos(ph2));
+S5y = sin(alfa2)*(b + l1*cos(th2) + l2*cos(ph2));
+S5z = l1*sin(th2) + l2*sin(ph2);
+S6x = cos(alfa3)*(b + l1*cos(th3) + l2*cos(ph3));
+S6y = sin(alfa3)*(b + l1*cos(th3) + l2*cos(ph3));
+S6z = l1*sin(th3) + l2*sin(ph3);
+%% Fila 1 -> derivada respecto a th1
+Gama11 = diff(S4x, th1)
+Gama12 = diff(S4y, th1)
+Gama13 = diff(S4z, th1)
+Gama14 = diff(S5x, th1)
+Gama15 = diff(S5y, th1)
+Gama16 = diff(S5z, th1)
+Gama17 = diff(S6x, th1)
+Gama18 = diff(S6y, th1)
+Gama19 = diff(S6z, th1)
+
+%% Fila 2 -> derivada respecto a th2
+Gama21 = diff(S4x, th2)
+Gama22 = diff(S4y, th2)
+Gama23 = diff(S4z, th2)
+Gama24 = diff(S5x, th2)
+Gama25 = diff(S5y, th2)
+Gama26 = diff(S5z, th2)
+Gama27 = diff(S6x, th2)
+Gama28 = diff(S6y, th2)
+Gama29 = diff(S6z, th2)
+
+%% Fila 3 -> derivada respecto a th3
+Gama31 = diff(S4x, th3)
+Gama32 = diff(S4y, th3)
+Gama33 = diff(S4z, th3)
+Gama34 = diff(S5x, th3)
+Gama35 = diff(S5y, th3)
+Gama36 = diff(S5z, th3)
+Gama37 = diff(S6x, th3)
+Gama38 = diff(S6y, th3)
+Gama39 = diff(S6z, th3)
+
+%% Fila 4 -> derivada respecto a ph1
+Gama41 = diff(S4x, ph1)
+Gama42 = diff(S4y, ph1)
+Gama43 = diff(S4z, ph1)
+Gama44 = diff(S5x, ph1)
+Gama45 = diff(S5y, ph1)
+Gama46 = diff(S5z, ph1)
+Gama47 = diff(S6x, ph1)
+Gama48 = diff(S6y, ph1)
+Gama49 = diff(S6z, ph1)
+
+%% Fila 5 -> derivada respecto a ph2
+Gama51 = diff(S4x, ph2)
+Gama52 = diff(S4y, ph2)
+Gama53 = diff(S4z, ph2)
+Gama54 = diff(S5x, ph2)
+Gama55 = diff(S5y, ph2)
+Gama56 = diff(S5z, ph2)
+Gama57 = diff(S6x, ph2)
+Gama58 = diff(S6y, ph2)
+Gama59 = diff(S6z, ph2)
+
+%% Fila 6 -> derivada respecto a ph3
+Gama61 = diff(S4x, ph3)
+Gama62 = diff(S4y, ph3)
+Gama63 = diff(S4z, ph3)
+Gama64 = diff(S5x, ph3)
+Gama65 = diff(S5y, ph3)
+Gama66 = diff(S5z, ph3)
+Gama67 = diff(S6x, ph3)
+Gama68 = diff(S6y, ph3)
+Gama69 = diff(S6z, ph3)
+
+Gamma = [Gama11  Gama12  Gama13  Gama14  Gama15  Gama16  Gama17  Gama18  Gama19
+         Gama21  Gama22  Gama23  Gama24  Gama25  Gama26  Gama27  Gama28  Gama29
+         Gama31  Gama32  Gama33  Gama34  Gama35  Gama36  Gama37  Gama38  Gama39
+         Gama41  Gama42  Gama43  Gama44  Gama45  Gama46  Gama47  Gama48  Gama49
+         Gama51  Gama52  Gama53  Gama54  Gama55  Gama56  Gama57  Gama58  Gama59
+         Gama61  Gama62  Gama63  Gama64  Gama65  Gama66  Gama67  Gama68  Gama69
+         gama71  gama72  gama73  gama74  gama75  gama76  gama77  gama78  gama79
+         gama81  gama82  gama83  gama84  gama85  gama86  gama87  gama88  gama89
+         gama91  gama92  gama93  gama94  gama95  gama96  gama97  gama98  gama99
+         gama101 gama102 gama103 gama104 gama105 gama106 gama107 gama108 gama109
+         gama111 gama112 gama113 gama114 gama115 gama116 gama117 gama118 gama119
+         gama121 gama122 gama123 gama124 gama125 gama126 gama127 gama128 gama129]
