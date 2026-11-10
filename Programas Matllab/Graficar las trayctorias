@@ -1,0 +1,236 @@
+
+    clc;
+    close all;
+
+    %% 1. Seleccionar archivo
+    if nargin < 1 || isempty(nombreArchivo)
+        [archivo, ruta] = uigetfile( ...
+            {'*.txt;*.csv', 'Archivos de datos (*.txt, *.csv)'}, ...
+            'Selecciona los datos de la trayectoria');
+
+        if isequal(archivo, 0)
+            disp('No se selecciono ningun archivo.');
+            return;
+        end
+
+        nombreArchivo = fullfile(ruta, archivo);
+    end
+
+    %% 2. Leer datos numericos
+    fid = fopen(nombreArchivo, 'r');
+
+    if fid == -1
+        error('No se pudo abrir el archivo seleccionado.');
+    end
+
+    datos = zeros(0, 9);
+
+    while true
+        linea = fgetl(fid);
+
+        if ~ischar(linea)
+            break;
+        end
+
+        % Ignorar lineas vacias y encabezados de texto
+        valores = sscanf(linea, '%f,');
+
+        % sscanf con formato separado por comas puede no leer
+        % correctamente todas las columnas en algunas versiones.
+        % Se utiliza strsplit para separar explicitamente.
+        partes = strsplit(strtrim(linea), ',');
+
+        if numel(partes) < 9
+            continue;
+        end
+
+        fila = str2double(partes(1:9));
+
+        if numel(fila) == 9 && all(isfinite(fila))
+            datos(end+1, :) = fila; %#ok<AGROW>
+        end
+    end
+
+    fclose(fid);
+
+    if isempty(datos)
+        error(['No se encontraron filas numericas validas. ', ...
+               'Verifica que el archivo tenga nueve columnas separadas por comas.']);
+    end
+
+    if size(datos, 2) ~= 9
+        error('Se requieren exactamente nueve columnas numericas.');
+    end
+
+    %% 3. Separar variables
+    X       = datos(:, 1);
+    Y       = datos(:, 2);
+    refX    = datos(:, 3);
+    refY    = datos(:, 4);
+    errorX  = datos(:, 5);
+    errorY  = datos(:, 6);
+    angA    = datos(:, 7);
+    angB    = datos(:, 8);
+    angC    = datos(:, 9);
+
+    %% 4. Tiempo de muestreo
+    Ts = 0.020;                 % 200 ms = 5 Hz
+    N = size(datos, 1);
+    tiempo = (0:N-1)' * Ts;
+
+    %% 5. Error calculado a partir de posicion y referencia
+    % Sirve para comprobar si el error enviado por Arduino
+    % coincide con la diferencia entre referencia y posicion.
+    errorXcalc = refX - X;
+    errorYcalc = refY - Y;
+
+    %% 6. Cambios angulares entre muestras
+    dAngA = [0; diff(angA)];
+    dAngB = [0; diff(angB)];
+    dAngC = [0; diff(angC)];
+
+    % Velocidad angular estimada en grados por segundo.
+    velA = dAngA / Ts;
+    velB = dAngB / Ts;
+    velC = dAngC / Ts;
+
+    %% 7. Crear tabla de resultados
+    resultados = table(tiempo, X, Y, refX, refY, ...
+        errorX, errorY, errorXcalc, errorYcalc, ...
+        angA, angB, angC, velA, velB, velC);
+
+    %% 8. Mostrar resumen
+    fprintf('\n========== ANALISIS DE TRAYECTORIA 3RRS ==========\n');
+    fprintf('Archivo: %s\n', nombreArchivo);
+    fprintf('Numero de muestras: %d\n', N);
+    fprintf('Tiempo de muestreo: %.3f s\n', Ts);
+    fprintf('Duracion aproximada: %.2f s\n', tiempo(end));
+
+    fprintf('\nError RMS en X: %.3f unidades\n', ...
+        sqrt(mean(errorX.^2)));
+    fprintf('Error RMS en Y: %.3f unidades\n', ...
+        sqrt(mean(errorY.^2)));
+
+    fprintf('\nError RMS recalculado en X: %.3f unidades\n', ...
+        sqrt(mean(errorXcalc.^2)));
+    fprintf('Error RMS recalculado en Y: %.3f unidades\n', ...
+        sqrt(mean(errorYcalc.^2)));
+
+    %% 9. Grafica de trayectoria: referencia contra posicion real
+    figure('Name', 'Trayectoria XY', 'Color', 'w');
+
+    plot(refX, refY, '--', 'LineWidth', 1.5);
+    hold on;
+    plot(X, Y, '-', 'LineWidth', 1.2);
+
+    grid on;
+    axis equal;
+    xlabel('Posicion X');
+    ylabel('Posicion Y');
+    title('Trayectoria deseada y trayectoria real');
+    legend('Referencia', 'Posicion real', 'Location', 'best');
+
+    %% 10. Posicion X respecto al tiempo
+    figure('Name', 'Posicion X', 'Color', 'w');
+
+    plot(tiempo, refX, '--', 'LineWidth', 1.5);
+    hold on;
+    plot(tiempo, X, 'LineWidth', 1.2);
+
+    grid on;
+    xlabel('Tiempo (s)');
+    ylabel('Posicion X');
+    title('Seguimiento de trayectoria en X');
+    legend('Referencia X', 'Posicion real X', ...
+        'Location', 'best');
+
+    %% 11. Posicion Y respecto al tiempo
+    figure('Name', 'Posicion Y', 'Color', 'w');
+
+    plot(tiempo, refY, '--', 'LineWidth', 1.5);
+    hold on;
+    plot(tiempo, Y, 'LineWidth', 1.2);
+
+    grid on;
+    xlabel('Tiempo (s)');
+    ylabel('Posicion Y');
+    title('Seguimiento de trayectoria en Y');
+    legend('Referencia Y', 'Posicion real Y', ...
+        'Location', 'best');
+
+    %% 12. Errores enviados por Arduino
+    figure('Name', 'Errores PID', 'Color', 'w');
+
+    plot(tiempo, errorX, 'LineWidth', 1.2);
+    hold on;
+    plot(tiempo, errorY, 'LineWidth', 1.2);
+
+    grid on;
+    xlabel('Tiempo (s)');
+    ylabel('Error');
+    title('Errores X e Y enviados por Arduino');
+    legend('Error X', 'Error Y', 'Location', 'best');
+
+    %% 13. Comparar errores enviados y recalculados
+    figure('Name', 'Verificacion de errores', 'Color', 'w');
+
+    plot(tiempo, errorX, '-', 'LineWidth', 1.2);
+    hold on;
+    plot(tiempo, errorXcalc, '--', 'LineWidth', 1.2);
+    plot(tiempo, errorY, '-', 'LineWidth', 1.2);
+    plot(tiempo, errorYcalc, '--', 'LineWidth', 1.2);
+
+    grid on;
+    xlabel('Tiempo (s)');
+    ylabel('Error');
+    title('Comparacion de errores enviados y recalculados');
+    legend('Error X Arduino', 'Error X calculado', ...
+           'Error Y Arduino', 'Error Y calculado', ...
+           'Location', 'best');
+
+    %% 14. Angulos de los motores
+    figure('Name', 'Angulos motores', 'Color', 'w');
+
+    plot(tiempo, angA, 'LineWidth', 1.2);
+    hold on;
+    plot(tiempo, angB, 'LineWidth', 1.2);
+    plot(tiempo, angC, 'LineWidth', 1.2);
+
+    grid on;
+    xlabel('Tiempo (s)');
+    ylabel('Angulo (grados)');
+    title('Angulos medidos por los encoders');
+    legend('Motor A', 'Motor B', 'Motor C', ...
+        'Location', 'best');
+
+    %% 15. Velocidad angular estimada
+    figure('Name', 'Velocidad angular', 'Color', 'w');
+
+    plot(tiempo, velA, 'LineWidth', 1.2);
+    hold on;
+    plot(tiempo, velB, 'LineWidth', 1.2);
+    plot(tiempo, velC, 'LineWidth', 1.2);
+
+    grid on;
+    xlabel('Tiempo (s)');
+    ylabel('Velocidad angular (grados/s)');
+    title('Velocidad angular estimada de los motores');
+    legend('Motor A', 'Motor B', 'Motor C', ...
+        'Location', 'best');
+
+    %% 16. Guardar resultados
+    [carpeta, nombre, ~] = fileparts(nombreArchivo);
+
+    if isempty(carpeta)
+        carpeta = pwd;
+    end
+
+    archivoSalida = fullfile(carpeta, ...
+        [nombre, '_resultados.csv']);
+
+    writetable(resultados, archivoSalida);
+
+    fprintf('\nResultados guardados en:\n%s\n', archivoSalida);
+    fprintf('=================================================\n');
+
+end
